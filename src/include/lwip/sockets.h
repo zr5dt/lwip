@@ -70,12 +70,14 @@ struct sockaddr_in {
 };
 
 #if LWIP_IPV6
+# define SIN6_LEN
 struct sockaddr_in6 {
   u8_t            sin6_len;      /* length of this structure */
   sa_family_t     sin6_family;   /* AF_INET6                 */
   in_port_t       sin6_port;     /* Transport layer port #   */
   u32_t           sin6_flowinfo; /* IPv6 flow information    */
   struct in6_addr sin6_addr;     /* IPv6 address             */
+  u32_t           sin6_scope_id; /* Scope ID                 */
 };
 #endif /* LWIP_IPV6 */
 
@@ -95,7 +97,7 @@ struct sockaddr_storage {
   char        s2_data1[2];
   u32_t       s2_data2[3];
 #if LWIP_IPV6
-  u32_t       s2_data3[2];
+  u32_t       s2_data3[3];
 #endif /* LWIP_IPV6 */
 };
 

@@ -61,8 +61,8 @@ struct in6_addr {
 #define s6_addr  un.u8_addr
 };
 
-#define IN6ADDR_ANY_INIT {0,0,0,0}
-#define IN6ADDR_LOOPBACK_INIT {0,0,0,PP_HTONL(1)}
+#define IN6ADDR_ANY_INIT {{{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}}}
+#define IN6ADDR_LOOPBACK_INIT {{{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}}}
 
 
 #define inet6_addr_from_ip6addr(target_in6addr, source_ip6addr) {(target_in6addr)->un.u32_addr[0] = (source_ip6addr)->addr[0]; \
