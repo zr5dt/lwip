@@ -1950,6 +1950,14 @@
 #endif
 
 /**
+ * LWIP_IPV6_NUM_ADDR_POLICIES: Number of user-defined entries in
+ * the IPv6 address policy table.
+ */
+#ifndef LWIP_IPV6_NUM_ADDR_POLICIES
+#define LWIP_IPV6_NUM_ADDR_POLICIES     0
+#endif
+
+/**
  * LWIP_IPV6_FORWARD==1: Forward IPv6 packets across netifs
  */
 #ifndef LWIP_IPV6_FORWARD

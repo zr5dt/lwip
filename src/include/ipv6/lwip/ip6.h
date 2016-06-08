@@ -160,6 +160,13 @@ PACK_STRUCT_END
 #define IP6H_NEXTH_SET(hdr, nexth) (hdr)->_nexth = (nexth)
 #define IP6H_HOPLIM_SET(hdr, hl) (hdr)->_hoplim = (u8_t)(hl)
 
+/* Structure of an entry in the IPv6 Address Policy Table. */
+struct ip6_addr_policy {
+  struct ip6_addr prefix;
+  u8_t plen;
+/**@todo u8_t precedence; Used in destination address selection. */
+  u8_t label;   /* Used in source address selection. */
+};
 
 #define ip6_init() /* TODO should we init current addresses and header pointer? */
 struct netif *ip6_route(struct ip6_addr *src, struct ip6_addr *dest);
@@ -185,6 +192,10 @@ void ip6_debug_print(struct pbuf *p);
 #else
 #define ip6_debug_print(p)
 #endif /* IP6_DEBUG */
+
+struct ip6_addr_policy *ip6_lookup_addr_policy(const struct ip6_addr *addr);
+struct ip6_addr_policy *ip6_add_addr_policy(const struct ip6_addr *prefix, u8_t plen);
+void                    ip6_remove_addr_policy(const struct ip6_addr *addr, u8_t plen);
 
 
 #ifdef __cplusplus

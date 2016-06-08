@@ -60,6 +60,74 @@
 #include "lwip/debug.h"
 #include "lwip/stats.h"
 
+/* Number of default entries in Policy Table below. */
+#define _DFLT_IP6PT_SIZE 7
+
+static struct ip6_addr_policy ip6_addr_policy_table[_DFLT_IP6PT_SIZE + LWIP_IPV6_NUM_ADDR_POLICIES] = {
+  /* Default portion of policy table (as recommended in RFC 6724). */
+  {{{0, 0, 0, PP_HTONL(0x00000001)}}, 128,  0},
+  {{{0, 0, 0, PP_HTONL(0xffff0000)}}, 96,   4},
+  {{{PP_HTONL(0x20020000), 0, 0, 0}}, 16,   2},
+  {{{PP_HTONL(0x20010000), 0, 0, 0}}, 32,   5},
+  {{{PP_HTONL(0xfc000000), 0, 0, 0}}, 7,    13},
+  {{{0, 0, 0, 0}},                    96,   3},
+  {{{PP_HTONL(0xfec00000), 0, 0, 0}}, 10,   11},
+  /* If LWIP_IPV6_NUM_ADDR_POLICIES > 0, entries below this line are application defined.
+   * They can be added by calling ip6_add_addr_policy(). */
+};
+
+static unsigned int ip6_addr_policy_table_size = _DFLT_IP6PT_SIZE;
+
+/**
+ * Get the scope of an IPv6 address as a number.
+ * The scope number returned follows that used in multicast addresses.
+ * This is a helper function for things like source address selection.
+ *
+ * @param addr a pinter to the IPv6 address in question
+ * @return the scope of the address as a number
+ */
+static u8_t
+ip6addrscope(const struct ip6_addr *addr)
+{
+    if ( ip6_addr_isany(addr) ) return 0; /* Invalid address */
+    if ( ip6_addr_isloopback(addr) ) return IP6_MULTICAST_SCOPE_INTERFACE_LOCAL;
+    if ( ip6_addr_islinklocal(addr) ) return IP6_MULTICAST_SCOPE_LINK_LOCAL;
+    if ( ip6_addr_issitelocal(addr) ) return IP6_MULTICAST_SCOPE_SITE_LOCAL;
+    if ( ip6_addr_isuniquelocal(addr) ) return IP6_MULTICAST_SCOPE_GLOBAL;
+
+     /* The scope of the multicast address is in the forth nibble. */
+    if ( ip6_addr_ismulticast(addr) ) return ((u8_t *)addr)[1] & 0x0f;
+
+    return IP6_MULTICAST_SCOPE_GLOBAL;
+} /* ip6addrscope */
+
+/**
+ * Find the longest matching prefix between two IPv6 addresses.
+ * This is a helper function for things like source address selection.
+ *
+ * @param A the first IPv6 address
+ * @param B the second IPv6 address
+ * @param maxplen the maximum prefix length to match
+ * @return the length of the matching prefix
+ */
+static u8_t
+ip6prefixmatch(const struct ip6_addr *A, const struct ip6_addr *B, u8_t maxplen)
+{
+    const u8_t *a = (const u8_t *)A;
+    const u8_t *b = (const u8_t *)B;
+    unsigned char x, plen;
+
+    for (x = 0; x < maxplen/8 && a[x] == b[x]; x++);
+    plen = x * 8;
+
+    /* Return exact number of matching bits. */
+    if (x < 16) {
+        unsigned char bits;
+        for (bits = a[x] ^ b[x]; !(bits & 0x80) && plen < maxplen; bits <<= 1) plen++;
+    }
+
+    return plen;
+} /* ip6prefixmatch */
 
 /**
  * Finds the appropriate network interface for a given IPv6 address. It tries to select
@@ -146,9 +214,97 @@ ip6_route(struct ip6_addr *src, struct ip6_addr *dest)
 }
 
 /**
+ * Lookup an entry in the IPv6 Address Policy Table, based on the
+ * longest matching prefix. Refer to RFC 6724.
+ *
+ * @param addr the IPv6 address to match against
+ * @return a pointer to a matching entry in the policy table, or NULL
+ *         if an entry can't be found.
+ */
+struct ip6_addr_policy *
+ip6_lookup_addr_policy(const struct ip6_addr *addr)
+{
+  unsigned int i;
+  struct ip6_addr_policy *policy, *best_policy = NULL;
+  u8_t best_plen = 0;
+
+  for (i = 0; i < ip6_addr_policy_table_size; i++) {
+    policy = &ip6_addr_policy_table[i];
+    if (policy->plen > best_plen) {
+      if (ip6prefixmatch(&policy->prefix, addr, policy->plen) == policy->plen) {
+        best_plen = policy->plen;
+        best_policy = policy;
+      }
+    }
+  }
+
+  return best_policy;
+}
+
+/**
+ * Add a user-defined entry to the IPv6 Address Policy Table.
+ *
+ * @param addr the IPv6 prefix to add
+ * @param plen the length of the prefix
+ * @return a pointer to an entry in the policy table, or NULL
+ *         if an entry can't be added (viz. the table is full).
+ */
+struct ip6_addr_policy *
+ip6_add_addr_policy(const struct ip6_addr *prefix, u8_t plen)
+{
+  struct ip6_addr_policy *policy;
+  unsigned int i;
+
+  /* Check for existing entry. */
+  for (i = 0; i < ip6_addr_policy_table_size; i++) {
+    policy = &ip6_addr_policy_table[i];
+    if (ip6prefixmatch(&policy->prefix, prefix, plen) == plen) return policy;
+  }
+
+  if (i >= sizeof(ip6_addr_policy_table)/sizeof(ip6_addr_policy_table[0])) {
+    /* No space available */
+    return 0;
+  }
+
+  policy = &ip6_addr_policy_table[i];
+  policy->prefix = *prefix;
+  policy->plen = plen;
+  policy->label = -1;
+
+  ip6_addr_policy_table_size++;
+  return policy;
+}
+
+/**
+ * Remove a user-defined entry from the IPv6 Address Policy Table.
+ *
+ * @param addr the IPv6 prefix to add
+ * @param plen the length of the prefix
+ * @return nothing
+ */
+void
+ip6_remove_addr_policy(const struct ip6_addr *addr, u8_t plen)
+{
+  struct ip6_addr_policy *policy;
+  unsigned int i;
+
+  /* Find the entry. */
+  for (i = 0; i < ip6_addr_policy_table_size; i++) {
+    policy = &ip6_addr_policy_table[i];
+    if (ip6prefixmatch(&policy->prefix, addr, plen) == plen) {
+      /* Remove the entry by replacing it with one at the end of the table. */
+      if (i != (ip6_addr_policy_table_size-1)) {
+        *policy = ip6_addr_policy_table[ip6_addr_policy_table_size-1];
+      }
+      ip6_addr_policy_table_size--;
+      break;
+    }
+  }
+}
+
+/**
  * Select the best IPv6 source address for a given destination
- * IPv6 address. Loosely follows RFC 3484. "Strong host" behavior
- * is assumed.
+ * IPv6 address. Follows RFC 6724.
  *
  * @param netif the netif on which to send a packet
  * @param dest the destination we are trying to reach
@@ -158,73 +314,115 @@ ip6_route(struct ip6_addr *src, struct ip6_addr *dest)
 ip6_addr_t *
 ip6_select_source_address(struct netif *netif, ip6_addr_t * dest)
 {
-  ip6_addr_t * src = NULL;
-  u8_t i;
+  u8_t i, dscope;
+  const struct ip6_addr_policy *policy, *dpolicy;
 
-  /* If dest is link-local, choose a link-local source. */
-  if (ip6_addr_islinklocal(dest) || ip6_addr_ismulticast_linklocal(dest) || ip6_addr_ismulticast_iflocal(dest)) {
-    for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
-      if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i)) &&
-          ip6_addr_islinklocal(netif_ip6_addr(netif, i))) {
-        return netif_ip6_addr(netif, i);
-      }
-    }
-  }
+  struct ip6_source {
+    ip6_addr_t *src;
+    u8_t scope;
+    u8_t plen;
+    u8_t state;
+    int label;
+  };
 
-  /* Choose a site-local with matching prefix. */
-  if (ip6_addr_issitelocal(dest) || ip6_addr_ismulticast_sitelocal(dest)) {
-    for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
-      if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i)) &&
-          ip6_addr_issitelocal(netif_ip6_addr(netif, i)) &&
-          ip6_addr_netcmp(dest, netif_ip6_addr(netif, i))) {
-        return netif_ip6_addr(netif, i);
-      }
-    }
-  }
+  struct ip6_source best = {NULL, 0, 0, 0, -1};
+  struct ip6_source curr;
 
-  /* Choose a unique-local with matching prefix. */
-  if (ip6_addr_isuniquelocal(dest) || ip6_addr_ismulticast_orglocal(dest)) {
-    for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
-      if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i)) &&
-          ip6_addr_isuniquelocal(netif_ip6_addr(netif, i)) &&
-          ip6_addr_netcmp(dest, netif_ip6_addr(netif, i))) {
-        return netif_ip6_addr(netif, i);
-      }
-    }
-  }
+#if 0
+#define NEW_BEST(rule) \
+  best = curr; \
+  LWIP_DEBUGF(IP6_DEBUG, ("Source Selection: Rule %d matched %s\n", rule, ip6addr_ntoa(curr.src)))
+#else
+#define NEW_BEST(rule) best = curr
+#endif
 
-  /* Choose a global with best matching prefix. */
-  if (ip6_addr_isglobal(dest) || ip6_addr_ismulticast_global(dest)) {
-    for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
-      if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i)) &&
-          ip6_addr_isglobal(netif_ip6_addr(netif, i))) {
-        if (src == NULL) {
-          src = netif_ip6_addr(netif, i);
-        }
-        else {
-          /* Replace src only if we find a prefix match. */
-          /* TODO find longest matching prefix. */
-          if ((!(ip6_addr_netcmp(src, dest))) &&
-              ip6_addr_netcmp(netif_ip6_addr(netif, i), dest)) {
-            src = netif_ip6_addr(netif, i);
-          }
-        }
-      }
-    }
-    if (src != NULL) {
-      return src;
-    }
-  }
+  curr.label = -1;
+  dscope = ip6addrscope(dest);
+  dpolicy = ip6_lookup_addr_policy(dest);
 
-  /* Last resort: see if arbitrary prefix matches. */
+  LWIP_DEBUGF(IP6_DEBUG, ("Source Selection: For destination %s\n", ip6addr_ntoa(dest)));
+
   for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
-    if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i)) &&
-        ip6_addr_netcmp(dest, netif_ip6_addr(netif, i))) {
-      return netif_ip6_addr(netif, i);
-    }
-  }
+    curr.state = netif_ip6_addr_state(netif, i);
+    if (!ip6_addr_isvalid(curr.state)) continue;
 
-  return NULL;
+    curr.src = netif_ip6_addr(netif, i);
+    curr.scope = ip6addrscope(curr.src);
+    if (!curr.scope) continue;
+    curr.plen = ip6prefixmatch(curr.src, dest, 128);
+    if (dpolicy) {
+      policy = ip6_lookup_addr_policy(curr.src);
+      curr.label = policy ? policy->label : -1;
+    }
+
+    /* Rule 1: Prefer same address. */
+    if (curr.plen == 128) {
+      NEW_BEST(1);
+      /* There can be no better source address than this. */
+      break;
+    }
+
+    if (!best.src) {
+        NEW_BEST(0);
+        continue;
+    }
+
+    /* Rule 2: Prefer appropriate scope. */
+    if (curr.scope < best.scope) {
+      if (curr.scope >= dscope) {
+        NEW_BEST(2);
+      }
+      continue;
+    }
+    if (curr.scope > best.scope) {
+      if (best.scope < dscope) {
+        NEW_BEST(2);
+      }
+      continue;
+    }
+
+    /* Rule 3:  Avoid deprecated addresses. */
+    if (ip6_addr_isdeprecated(best.state) && !ip6_addr_isdeprecated(curr.state)) {
+      NEW_BEST(3);
+      continue;
+    }
+    if (!ip6_addr_isdeprecated(best.state) && ip6_addr_isdeprecated(curr.state)) {
+      continue;
+    }
+
+    /** @todo Rule 4:  Prefer home addresses. */
+
+    /** @todo Rule 5:  Prefer outgoing interface. */
+
+    /* Rule 6:  Prefer matching label in policy table. */
+    if (dpolicy) {
+      int dlabel = dpolicy->label;
+      if (curr.label == dlabel && best.label != dlabel) {
+        NEW_BEST(6);
+        continue;
+      }
+      if (curr.label != dlabel && best.label == dlabel) {
+        continue;
+      }
+    }
+
+    /** @todo Rule 7:  Prefer public addresses. */
+
+    /* Rule 8:  Use longest matching prefix. */
+    if (curr.plen > best.plen) {
+      NEW_BEST(8);
+      continue;
+    }
+    if (curr.plen < best.plen) {
+      continue;
+    }
+
+    /* Implementation specific rules can go here. */
+
+  } /* for (i = 0;  ... ) */
+
+  LWIP_DEBUGF(IP6_DEBUG, ("Source Selection: %s SELECTED\n", best.src ? ip6addr_ntoa(best.src) : "Nothing"));
+  return best.src;
 }
 
 #if LWIP_IPV6_FORWARD
