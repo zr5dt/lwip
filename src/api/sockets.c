@@ -55,6 +55,9 @@
 #if LWIP_CHECKSUM_ON_COPY
 #include "lwip/inet_chksum.h"
 #endif
+#if LWIP_IPV6 && LWIP_IPV6_MLD
+#include "lwip/mld6.h"
+#endif
 
 #include <string.h>
 
@@ -2134,7 +2137,18 @@ lwip_setsockopt(int s, int level, int optname, const void *optval, socklen_t opt
         return 0;
 
       break;
-      default:
+
+    case IPV6_JOIN_GROUP:
+    case IPV6_LEAVE_GROUP:
+      if (NETCONNTYPE_GROUP(netconn_type(sock->conn)) != NETCONN_UDP) {
+        err = EAFNOSUPPORT;
+      }
+      else if (optlen < sizeof(struct ipv6_mreq)) {
+        err = EINVAL;
+      }
+      break;
+
+    default:
         LWIP_DEBUGF(SOCKETS_DEBUG, ("lwip_setsockopt(%d, IPPROTO_IPV6, UNIMPL: optname=0x%x, ..)\n",
                     s, optname));
         err = ENOPROTOOPT;
@@ -2385,6 +2399,34 @@ lwip_setsockopt_internal(void *arg)
       LWIP_DEBUGF(SOCKETS_DEBUG, ("lwip_setsockopt(%d, IPPROTO_IPV6, IPV6_V6ONLY, ..) -> %d\n",
                   s, ((sock->conn->flags & NETCONN_FLAG_IPV6_V6ONLY) ? 1 : 0)));
       break;
+    case IPV6_JOIN_GROUP:
+    case IPV6_LEAVE_GROUP: {
+      struct ipv6_mreq *imr = (struct ipv6_mreq *)optval;
+      ip6_addr_t multi_addr;
+      struct netif *netif;
+      inet6_addr_to_ip6addr(&multi_addr, &imr->ipv6mr_multiaddr);
+      /* Find netif */
+      for (netif = netif_list; netif; netif = netif->next) {
+        if (imr->ipv6mr_interface == (netif->num + 1)) break;
+      }
+      if (netif) {
+        if(optname == IPV6_JOIN_GROUP){
+          data->err = mld6_joingroup_netif(netif, &multi_addr);
+        } else {
+          data->err = mld6_leavegroup_netif(netif, &multi_addr);
+        }
+        if (data->err == ERR_MEM) {
+          data->err = ENOMEM;
+        }
+        else if (data->err != ERR_OK) {
+          data->err = EADDRNOTAVAIL;
+        }
+      }
+      else {
+        /* Invalid interface specified. */
+        data->err = EINVAL;
+      }
+      break; }
     default:
       LWIP_ASSERT("unhandled optname", 0);
       break;

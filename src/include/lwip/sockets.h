@@ -208,6 +208,15 @@ struct linger {
  * Options for level IPPROTO_IPV6
  */
 #define IPV6_V6ONLY 27 /* RFC3493: boolean control to restrict AF_INET6 sockets to IPv6 communications only. */
+
+/* Join/Leave a multicast group (uses struct ip6_mreq) */
+#define IPV6_JOIN_GROUP   3
+#define IPV6_LEAVE_GROUP  4
+
+struct ipv6_mreq {
+    struct in6_addr ipv6mr_multiaddr; /* IPv6 multicast addr */
+    unsigned int    ipv6mr_interface; /* interface index */
+};
 #endif /* LWIP_IPV6 */
 
 #if LWIP_UDP && LWIP_UDPLITE

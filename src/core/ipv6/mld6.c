@@ -318,6 +318,44 @@ mld6_input(struct pbuf *p, struct netif *inp)
 /**
  * Join a group on a network interface.
  *
+ * @param netif   the network interface which should join a new group.
+ * @param groupaddr the ipv6 address of the group to join
+ * @return ERR_OK if group was joined on the netif(s), an err_t otherwise
+ */
+err_t
+mld6_joingroup_netif(struct netif *netif, ip6_addr_t *groupaddr)
+{
+  struct mld_group *group;
+
+  /* find group or create a new one if not found */
+  group = mld6_lookfor_group(netif, groupaddr);
+
+  if (group == NULL) {
+    /* Joining a new group. Create a new group entry. */
+    group = mld6_new_group(netif, groupaddr);
+    if (group == NULL) {
+     return ERR_MEM;
+    }
+
+    /* Activate this address on the MAC layer. */
+    if (netif->mld_mac_filter != NULL) {
+      netif->mld_mac_filter(netif, groupaddr, MLD6_ADD_MAC_FILTER);
+    }
+
+    /* Report our membership. */
+    MLD6_STATS_INC(mld6.tx_report);
+    mld6_send(group, ICMP6_TYPE_MLR);
+    mld6_delayed_report(group, MLD6_JOIN_DELAYING_MEMBER_TMR_MS);
+  }
+
+  /* Increment group use */
+  group->use++;
+  return ERR_OK;
+}
+
+/**
+ * Join a group on a network interface.
+ *
  * @param srcaddr ipv6 address of the network interface which should
  *                join a new group. If IP6_ADDR_ANY, join on all netifs
  * @param groupaddr the ipv6 address of the group to join
@@ -327,52 +365,24 @@ err_t
 mld6_joingroup(ip6_addr_t *srcaddr, ip6_addr_t *groupaddr)
 {
   err_t              err = ERR_VAL; /* no matching interface */
-  struct mld_group  *group;
   struct netif      *netif;
-  u8_t               match;
   u8_t               i;
 
   /* loop through netif's */
   netif = netif_list;
   while (netif != NULL) {
     /* Should we join this interface ? */
-    match = 0;
     if (ip6_addr_isany(srcaddr)) {
-      match = 1;
+      err = mld6_joingroup_netif(netif, groupaddr);
+      if (err != ERR_OK) break;
     }
     else {
       for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
         if (ip6_addr_cmp(srcaddr, netif_ip6_addr(netif, i))) {
-          match = 1;
+          err = mld6_joingroup_netif(netif, groupaddr);
           break;
         }
       }
-    }
-    if (match) {
-      /* find group or create a new one if not found */
-      group = mld6_lookfor_group(netif, groupaddr);
-
-      if (group == NULL) {
-        /* Joining a new group. Create a new group entry. */
-        group = mld6_new_group(netif, groupaddr);
-        if (group == NULL) {
-          return ERR_MEM;
-        }
-
-        /* Activate this address on the MAC layer. */
-        if (netif->mld_mac_filter != NULL) {
-          netif->mld_mac_filter(netif, groupaddr, MLD6_ADD_MAC_FILTER);
-        }
-
-        /* Report our membership. */
-        MLD6_STATS_INC(mld6.tx_report);
-        mld6_send(group, ICMP6_TYPE_MLR);
-        mld6_delayed_report(group, MLD6_JOIN_DELAYING_MEMBER_TMR_MS);
-      }
-
-      /* Increment group use */
-      group->use++;
-      err = ERR_OK;
     }
 
     /* proceed to next network interface */
@@ -380,6 +390,47 @@ mld6_joingroup(ip6_addr_t *srcaddr, ip6_addr_t *groupaddr)
   }
 
   return err;
+}
+
+/**
+ * Leave a group on a network interface.
+ *
+ * @param srcaddr the network interface which should leave the group.
+ * @param groupaddr the ipv6 address of the group to leave
+ * @return ERR_OK if group was left on the netif(s), an err_t otherwise
+ */
+err_t
+mld6_leavegroup_netif(struct netif *netif, ip6_addr_t *groupaddr)
+{
+  struct mld_group *group;
+
+  /* find group */
+  group = mld6_lookfor_group(netif, groupaddr);
+  if (group == NULL) {
+    return ERR_VAL;
+  }
+
+  /* Leave if there is no other use of the group */
+  if (group->use <= 1) {
+    /* If we are the last reporter for this group */
+    if (group->last_reporter_flag) {
+      MLD6_STATS_INC(mld6.tx_leave);
+      mld6_send(group, ICMP6_TYPE_MLD);
+    }
+
+    /* Disable the group at the MAC level */
+    if (netif->mld_mac_filter != NULL) {
+      netif->mld_mac_filter(netif, groupaddr, MLD6_DEL_MAC_FILTER);
+    }
+
+    /* Free the group */
+    mld6_free_group(group);
+  } else {
+    /* Decrement group use */
+    group->use--;
+  }
+
+  return ERR_OK;
 }
 
 /**
@@ -394,55 +445,27 @@ err_t
 mld6_leavegroup(ip6_addr_t *srcaddr, ip6_addr_t *groupaddr)
 {
   err_t              err = ERR_VAL; /* no matching interface */
-  struct mld_group  *group;
   struct netif      *netif;
-  u8_t               match;
   u8_t               i;
 
   /* loop through netif's */
   netif = netif_list;
   while (netif != NULL) {
     /* Should we leave this interface ? */
-    match = 0;
     if (ip6_addr_isany(srcaddr)) {
-      match = 1;
+      if ( mld6_leavegroup_netif(netif, groupaddr) == ERR_OK ) {
+        err = ERR_OK;
+      }
     }
     else {
       for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
         if (ip6_addr_cmp(srcaddr, netif_ip6_addr(netif, i))) {
-          match = 1;
+          err = mld6_leavegroup_netif(netif, groupaddr);
           break;
         }
       }
     }
-    if (match) {
-      /* find group */
-      group = mld6_lookfor_group(netif, groupaddr);
 
-      if (group != NULL) {
-        /* Leave if there is no other use of the group */
-        if (group->use <= 1) {
-          /* If we are the last reporter for this group */
-          if (group->last_reporter_flag) {
-            MLD6_STATS_INC(mld6.tx_leave);
-            mld6_send(group, ICMP6_TYPE_MLD);
-          }
-
-          /* Disable the group at the MAC level */
-          if (netif->mld_mac_filter != NULL) {
-            netif->mld_mac_filter(netif, groupaddr, MLD6_DEL_MAC_FILTER);
-          }
-
-          /* Free the group */
-          mld6_free_group(group);
-        } else {
-          /* Decrement group use */
-          group->use--;
-        }
-        /* Leave on this interface */
-        err = ERR_OK;
-      }
-    }
     /* proceed to next network interface */
     netif = netif->next;
   }

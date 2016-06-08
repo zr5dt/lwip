@@ -107,7 +107,8 @@ struct mld_group *mld6_lookfor_group(struct netif *ifp, ip6_addr_t *addr);
 void   mld6_input(struct pbuf *p, struct netif *inp);
 err_t  mld6_joingroup(ip6_addr_t *srcaddr, ip6_addr_t *groupaddr);
 err_t  mld6_leavegroup(ip6_addr_t *srcaddr, ip6_addr_t *groupaddr);
-
+err_t  mld6_joingroup_netif(struct netif *netif, ip6_addr_t *groupaddr);
+err_t  mld6_leavegroup_netif(struct netif *netif, ip6_addr_t *groupaddr);
 
 #ifdef __cplusplus
 }
