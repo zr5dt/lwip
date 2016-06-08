@@ -62,7 +62,7 @@ extern "C" {
 
 /** must be the maximum of all used hardware address lengths
     across all types of interfaces in use */
-#define NETIF_MAX_HWADDR_LEN 6U
+#define NETIF_MAX_HWADDR_LEN 8U
 
 /** Whether the network interface is 'up'. This is
  * a software flag used to control whether this network
