@@ -213,14 +213,17 @@ int sys_mbox_valid(sys_mbox_t *mbox);
 void sys_mbox_set_invalid(sys_mbox_t *mbox);
 #endif
 
-/** The only thread function:
- * Creates a new thread
+/* Thread functions: */
+/** Creates a new thread
  * @param name human-readable name for the thread (used for debugging purposes)
  * @param thread thread-function
  * @param arg parameter passed to 'thread'
  * @param stacksize stack size in bytes for the new thread (may be ignored by ports)
  * @param prio priority of the new thread (may be ignored by ports) */
 sys_thread_t sys_thread_new(const char *name, lwip_thread_fn thread, void *arg, int stacksize, int prio);
+
+/** Get current thread handle */
+sys_thread_t sys_thread_get_current_handle();
 
 #endif /* NO_SYS */
 

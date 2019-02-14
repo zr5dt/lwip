@@ -2407,7 +2407,7 @@ lwip_setsockopt_internal(void *arg)
       inet6_addr_to_ip6addr(&multi_addr, &imr->ipv6mr_multiaddr);
       /* Find netif */
       for (netif = netif_list; netif; netif = netif->next) {
-        if (imr->ipv6mr_interface == (netif->num + 1)) break;
+        if (imr->ipv6mr_interface == (unsigned int)(netif->num + 1)) break;
       }
       if (netif) {
         if(optname == IPV6_JOIN_GROUP){
