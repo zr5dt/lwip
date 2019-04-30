@@ -44,6 +44,7 @@
 #include "lwip/opt.h"
 #include "lwip/pbuf.h"
 #include "lwip/ip6_addr.h"
+#include "lwip/ip6.h"
 #include "lwip/netif.h"
 
 #ifdef __cplusplus
@@ -56,13 +57,18 @@ extern "C" {
 /* The IPv6 reassembly timer interval in milliseconds. */
 #define IP6_REASS_TMR_INTERVAL 1000
 
+#define IPV6_FRAG_SRC(ipr) ((ipr)->iphdr->src)
+#define IPV6_FRAG_DEST(ipr) ((ipr)->iphdr->dest)
+
 /* IPv6 reassembly helper struct.
  * This is exported because memp needs to know the size.
  */
 struct ip6_reassdata {
   struct ip6_reassdata *next;
   struct pbuf *p;
-  struct ip6_hdr * iphdr;
+  struct ip6_hdr *iphdr; /* pointer to the first (original) IPv6 header */
+  /* In this case we still need the buffer, for sending ICMPv6 replies. */
+  u8_t orig_hdr[sizeof(struct ip6_frag_hdr)];
   u32_t identification;
   u16_t datagram_len;
   u8_t nexth;

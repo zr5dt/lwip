@@ -1713,6 +1713,22 @@ lwip_getsockopt(int s, int level, int optname, void *optval, socklen_t *optlen)
     }  /* switch (optname) */
     break;
 #endif /* LWIP_UDP && LWIP_UDPLITE*/
+    /* Level: IPPROTO_RAW */
+  case IPPROTO_RAW:
+    switch (optname) {
+#if LWIP_IPV6
+    case IPV6_CHECKSUM:
+      if (*optlen < sizeof(int)) {
+        err = EINVAL;
+        break;
+      }
+#endif /* LWIP_IPV6 */
+    default:
+      LWIP_DEBUGF(SOCKETS_DEBUG, ("lwip_getsockopt(%d, IPPROTO_RAW, UNIMPL: optname=0x%x, ..)\n",
+                                  s, optname));
+      err = ENOPROTOOPT;
+    }  /* switch (optname) */
+    break;
 /* UNDEFINED LEVEL */
   default:
       LWIP_DEBUGF(SOCKETS_DEBUG, ("lwip_getsockopt(%d, level=0x%x, UNIMPL: optname=0x%x, ..)\n",
@@ -1842,6 +1858,24 @@ lwip_getsockopt_internal(void *arg)
       *(int*)optval = (udp_flags(sock->conn->pcb.udp) & UDP_FLAGS_NOCHKSUM) ? 1 : 0;
       break;
 #endif /* LWIP_UDP*/
+  /* Level: IPPROTO_RAW */
+    case IPPROTO_RAW:
+      switch (optname) {
+#if LWIP_IPV6
+      case IPV6_CHECKSUM:
+        if (sock->conn->pcb.raw->chksum_reqd == 0)
+          *(int *)optval = -1;
+        else
+          *(int *)optval = sock->conn->pcb.raw->chksum_offset;
+      LWIP_DEBUGF(SOCKETS_DEBUG, ("lwip_getsockopt(%d, IPPROTO_RAW, IPV6_CHECKSUM) = %d\n",
+              s, (*(int*)optval)) );
+      break;
+#endif /* LWIP_IPV6 */
+    default:
+      LWIP_ASSERT("unhandled optname", 0);
+      break;
+    }  /* switch (optname) */
+   break;
     default:
       LWIP_ASSERT("unhandled optname", 0);
       break;
@@ -2148,9 +2182,24 @@ lwip_setsockopt(int s, int level, int optname, const void *optval, socklen_t opt
       }
       break;
 
+    case IPV6_CHECKSUM:
+      err = EINVAL;
+      break;
+
     default:
         LWIP_DEBUGF(SOCKETS_DEBUG, ("lwip_setsockopt(%d, IPPROTO_IPV6, UNIMPL: optname=0x%x, ..)\n",
                     s, optname));
+        err = ENOPROTOOPT;
+    }  /* switch (optname) */
+    break;
+  case IPPROTO_ICMPV6:
+    switch (optname) {
+    case IPV6_CHECKSUM:
+        err = EINVAL;
+        break;
+    default:
+        LWIP_DEBUGF(SOCKETS_DEBUG, ("lwip_setsockopt(%d, IPPROTO_ICMPV6, UNIMPL: optname=0x%x, ..)\n",
+                                    s, optname));
         err = ENOPROTOOPT;
     }  /* switch (optname) */
     break;
@@ -2180,6 +2229,22 @@ lwip_setsockopt(int s, int level, int optname, const void *optval, socklen_t opt
     }  /* switch (optname) */
     break;
 #endif /* LWIP_UDP && LWIP_UDPLITE */
+/* Level: IPPROTO_RAW */
+  case IPPROTO_RAW:
+    switch (optname) {
+#if LWIP_IPV6
+    case IPV6_CHECKSUM:
+        /* Per RFC3542, odd offsets are not allowed */
+        if ((*(int *)optval > 0) && (*(int *)optval & 1))
+            err = EINVAL;
+        break;
+#endif /* LWIP_IPV6 */
+    default:
+        LWIP_DEBUGF(SOCKETS_DEBUG, ("lwip_setsockopt(%d, IPPROTO_RAW, UNIMPL: optname=0x%x, ..)\n",
+                                    s, optname));
+        err = ENOPROTOOPT;
+    } /* switch (optname) */
+    break;
 /* UNDEFINED LEVEL */
   default:
     LWIP_DEBUGF(SOCKETS_DEBUG, ("lwip_setsockopt(%d, level=0x%x, UNIMPL: optname=0x%x, ..)\n",
@@ -2284,6 +2349,26 @@ lwip_setsockopt_internal(void *arg)
       }
       break;
 #endif /* LWIP_UDP */
+  /* Level: IPPROTO_RAW */
+    case IPPROTO_RAW:
+      switch (optname) {
+#if LWIP_IPV6
+      case IPV6_CHECKSUM:
+        if (*(int *)optval < 0) {
+          sock->conn->pcb.raw->chksum_reqd = 0;
+        } else {
+          sock->conn->pcb.raw->chksum_reqd = 1;
+          sock->conn->pcb.raw->chksum_offset = *(int *)optval;
+        }
+        LWIP_DEBUGF(SOCKETS_DEBUG, ("lwip_setsockopt(%d, IPPROTO_RAW, IPV6_CHECKSUM, ..) -> %d\n",
+                  s, sock->conn->pcb.raw->chksum_reqd));
+        break;
+#endif /* LWIP_IPV6 */
+      default:
+        LWIP_ASSERT("unhandled optname", 0);
+        break;
+      }  /* switch (optname) */
+      break;
     default:
       LWIP_ASSERT("unhandled optname", 0);
       break;

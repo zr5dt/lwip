@@ -51,6 +51,7 @@
 #include "arch/perf.h"
 #include "lwip/ip6.h"
 #include "lwip/ip6_addr.h"
+#include "lwip/inet_chksum.h"
 
 #include <string.h>
 
@@ -313,6 +314,16 @@ raw_sendto(struct raw_pcb *pcb, struct pbuf *p, ip_addr_t *ipaddr)
     src_ip = &pcb->local_ip;
   }
 
+#if LWIP_IPV6
+  /* If requested, based on the IPV6_CHECKSUM socket option per RFC3542,
+     compute the checksum and update the checksum in the payload. */
+  if (PCB_ISIPV6(pcb) && pcb->chksum_reqd) {
+    u16_t chksum = ip6_chksum_pseudo(p, pcb->protocol, p->tot_len, ip_2_ip6(src_ip), ip_2_ip6(dst_ip));
+    LWIP_ASSERT("Checksum must fit into first pbuf", p->len >= (pcb->chksum_offset + 2));
+    SMEMCPY(((u8_t *)p->payload) + pcb->chksum_offset, &chksum, sizeof(u16_t));
+  }
+
+#endif
   NETIF_SET_HWADDRHINT(netif, &pcb->addr_hint);
   err = ipX_output_if(PCB_ISIPV6(pcb), q, ipX_2_ip(src_ip), ipX_2_ip(dst_ip), pcb->ttl, pcb->tos, pcb->protocol, netif);
   NETIF_SET_HWADDRHINT(netif, NULL);

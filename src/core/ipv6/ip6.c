@@ -807,8 +807,7 @@ netif_found:
       if (((frag_hdr->_fragment_offset & IP6_FRAG_OFFSET_MASK) == 0) &&
           ((frag_hdr->_fragment_offset & IP6_FRAG_MORE_FLAG) == 0)) {
 
-        /* This is a 1-fragment packet, usually a packet that we have
-         * already reassembled. Skip this header anc continue. */
+        /* This is a 1-fragment packet. Skip this header and continue. */
         pbuf_header(p, -hlen);
       }
       else {

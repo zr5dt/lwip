@@ -177,6 +177,7 @@ struct linger {
 #define IPPROTO_ICMPV6  58
 #endif /* LWIP_IPV6 */
 #define IPPROTO_UDPLITE 136
+#define IPPROTO_RAW     255
 
 /* Flags we can use with send and recv. */
 #define MSG_PEEK       0x01    /* Peeks at an incoming message */
@@ -207,6 +208,7 @@ struct linger {
 /*
  * Options for level IPPROTO_IPV6
  */
+#define IPV6_CHECKSUM     7  /* RFC3542: calculate and insert the ICMPv6 checksum for raw sockets. */
 #define IPV6_V6ONLY 27 /* RFC3493: boolean control to restrict AF_INET6 sockets to IPv6 communications only. */
 
 /* Join/Leave a multicast group (uses struct ip6_mreq) */

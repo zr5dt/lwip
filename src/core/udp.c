@@ -562,7 +562,7 @@ udp_sendto_chksum(struct udp_pcb *pcb, struct pbuf *p, ip_addr_t *dst_ip,
   if (ipX_addr_ismulticast(PCB_ISIPV6(pcb), dst_ip_route)) {
     /* For multicast, find a netif based on source address. */
 #if LWIP_IPV6
-    if (PCB_ISIPV6(pcb)) {
+    if (PCB_ISIPV6(pcb) && !ip6_addr_isany(ipX_2_ip6(&pcb->local_ip))) {
       dst_ip_route = &pcb->local_ip;
     } else
 #endif /* LWIP_IPV6 */
